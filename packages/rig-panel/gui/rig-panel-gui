@@ -1,0 +1,592 @@
+#!/usr/bin/env python3
+"""Rig Panel — native GTK4/libadwaita control panel for the agentic box.
+
+Pages: Status, Power (24/7 sleepless), Updates, Tailscale.
+
+Accessibility notes (GNOME HIG):
+- Every control has a text label; no icon-only buttons.
+- State is always words ("On"/"Off"), never color alone.
+- Sidebar + stack gives full keyboard navigation out of the box;
+  dialogs close with Escape and expose proper dialog roles.
+- No fixed pixel font sizes, so system text scaling just works;
+  monospace is applied via Pango attributes, not a hardcoded font.
+- Errors use modal message dialogs with a recovery action, plus
+  toast confirmations for successful non-modal actions.
+
+Self-test (no window shown, for CI/smoke runs under Xvfb):
+    RIG_PANEL_SELFTEST=1 ./rig-panel-gui   -> prints UI_OK / traceback
+"""
+import os
+import shutil
+import subprocess
+import sys
+
+import gi
+
+gi.require_version("Gtk", "4.0")
+gi.require_version("Adw", "1")
+from gi.repository import Adw, Gio, GLib, Gtk, Pango  # noqa: E402
+
+APP_ID = "com.github.agenticbox.RigPanel"
+DROPIN = "/etc/systemd/logind.conf.d/sleepless.conf"
+VERSIONS_FILE = os.path.expanduser("~/.config/rig-panel/versions.conf")
+
+# ---------------------------------------------------------------- backend
+
+def run(cmd, timeout=8):
+    """Run cmd, return stdout stripped; '' on any failure. Never raises."""
+    try:
+        out = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=timeout)
+        if out.returncode != 0:
+            return ""
+        return (out.stdout or "").strip().splitlines()[0] \
+            if out.stdout.strip() else ""
+    except Exception:
+        return ""
+
+
+def have(cmd):
+    return shutil.which(cmd) is not None
+
+
+def tool_version(cmd, *args):
+    if not have(cmd):
+        return "not installed"
+    return run([cmd, *args]) or "unknown"
+
+
+def t3code_version():
+    v = run(["dpkg-query", "-W", "-f=${Version}", "t3code"])
+    return v or "not installed"
+
+
+def extra_versions():
+    vals = {}
+    try:
+        with open(VERSIONS_FILE) as f:
+            for line in f:
+                line = line.strip()
+                if line and "=" in line and not line.startswith("#"):
+                    k, v = line.split("=", 1)
+                    vals[k.strip()] = v.strip().strip('"')
+    except OSError:
+        pass
+    return vals
+
+
+def collect_status():
+    extra = extra_versions()
+    return [
+        ("opencode", tool_version("opencode", "--version")),
+        ("codex", tool_version("codex", "--version")),
+        ("claude", tool_version("claude", "--version")),
+        ("cursor editor", tool_version("cursor", "--version")),
+        ("cursor agent", tool_version("agent", "--version")),
+        ("agy · antigravity cli", tool_version("agy", "--version")),
+        ("t3 terminal", tool_version("t3", "--version")),
+        ("t3 desktop app", t3code_version()),
+        ("node runtime", tool_version("node", "--version")),
+        ("tailscale", run(["tailscale", "--version"]).splitlines()[0]
+         if have("tailscale") else "not installed"),
+        ("antigravity app", extra.get("ANTIGRAVITY_APP", "installed")),
+        ("antigravity ide", extra.get("ANTIGRAVITY_IDE", "installed")),
+    ]
+
+
+def sleepless_on():
+    return os.path.exists(DROPIN)
+
+
+def gsetting(schema, key):
+    try:
+        s = Gio.Settings.new(schema)
+        return s.get_string(key)
+    except Exception:
+        return None
+
+
+def lid_summary():
+    ac = gsetting("org.cinnamon.settings-daemon.plugins.power",
+                  "lid-close-ac-action")
+    bat = gsetting("org.cinnamon.settings-daemon.plugins.power",
+                   "lid-close-battery-action")
+    if ac is None and bat is None:
+        return "unknown (settings schema not available)"
+    return f"lid AC={ac} battery={bat}"
+
+
+def set_gsetting(schema, key, value):
+    try:
+        Gio.Settings.new(schema).set_string(key, value)
+        return True
+    except Exception:
+        return False
+
+
+CINN = "org.cinnamon.settings-daemon.plugins.power"
+GNOME = "org.gnome.settings-daemon.plugins.power"
+
+
+def apply_desktop_keys(mode):
+    """mode 'nothing' (awake) or 'suspend' (defaults). Best effort."""
+    for schema, keys in (
+            (CINN, ("lid-close-ac-action", "lid-close-battery-action")),
+            (GNOME, ("lid-close-ac-action", "lid-close-battery-action",
+                      "sleep-inactive-ac-type",
+                      "sleep-inactive-battery-type"))):
+        for k in keys:
+            set_gsetting(schema, k, mode)
+
+
+DROPIN_BODY = """[Login]
+# Managed by Rig Panel: keep the box awake 24/7 with the lid closed
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+HandleLidSwitchDocked=ignore
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+IdleAction=ignore
+"""
+
+
+def pkexec(cmd):
+    """Run cmd (list) as root via pkexec. Returns (ok, stderr_hint)."""
+    try:
+        p = subprocess.run(["pkexec"] + cmd, capture_output=True,
+                           text=True, timeout=120)
+        return p.returncode == 0, (p.stderr or "").strip()
+    except Exception as e:  # noqa: BLE001 - report, don't crash
+        return False, str(e)
+
+
+def sleepless_enable():
+    ok, err = pkexec(["bash", "-c",
+                      "mkdir -p /etc/systemd/logind.conf.d && "
+                      f"cat > {DROPIN} <<'EOF'\n{DROPIN_BODY}EOF\n"
+                      "systemctl restart systemd-logind"])
+    if ok:
+        apply_desktop_keys("nothing")
+    return ok, err
+
+
+def sleepless_disable():
+    ok, err = pkexec(["bash", "-c",
+                      f"rm -f {DROPIN} && systemctl restart systemd-logind"])
+    if ok:
+        apply_desktop_keys("suspend")
+    return ok, err
+
+
+def open_terminal(title, command):
+    try:
+        subprocess.Popen([
+            "gnome-terminal", f"--title={title}", "--", "bash", "-c",
+            command + '; echo; read -rp "Done — press Enter to close… " _'])
+        return True
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------- UI
+
+def mono(label):
+    label.add_css_class("monospace")
+    return label
+
+
+class RigWindow(Adw.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title="Rig Panel",
+                         default_width=780, default_height=580)
+
+        self.toasts = Adw.ToastOverlay.new()
+        self.set_content(self.toasts)
+
+        split = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        self.toasts.set_child(split)
+
+        self.stack = Gtk.Stack.new()
+        self.stack.set_transition_type(
+            Gtk.StackTransitionType.SLIDE_UP_DOWN)
+        self.stack.set_vexpand(True)
+        self.stack.set_hexpand(True)
+
+        sidebar = Gtk.StackSidebar.new()
+        sidebar.set_stack(self.stack)
+        sidebar.set_size_request(180, -1)
+
+        split.append(sidebar)
+        split.append(self.stack)
+
+        self.build_status_page()
+        self.build_power_page()
+        self.build_updates_page()
+        self.build_tailscale_page()
+
+    # -- shared widgets -------------------------------------------------
+    def toast(self, text):
+        self.toasts.add_toast(Adw.Toast.new(text))
+
+    def confirm(self, heading, body, ok_label, on_ok):
+        dlg = Gtk.MessageDialog(
+            transient_for=self, modal=True,
+            message_type=Gtk.MessageType.QUESTION,
+            buttons=Gtk.ButtonsType.NONE, text=heading,
+            secondary_text=body)
+        dlg.add_button("Cancel", Gtk.ResponseType.CANCEL)
+        dlg.add_button(ok_label, Gtk.ResponseType.OK)
+        dlg.set_default_response(Gtk.ResponseType.OK)
+
+        def done(d, resp):
+            d.destroy()
+            if resp == Gtk.ResponseType.OK:
+                on_ok()
+        dlg.connect("response", done)
+        dlg.present()
+
+    def error(self, heading, body):
+        dlg = Gtk.MessageDialog(
+            transient_for=self, modal=True,
+            message_type=Gtk.MessageType.ERROR,
+            buttons=Gtk.ButtonsType.CLOSE, text=heading,
+            secondary_text=body)
+        dlg.connect("response", lambda d, _r: d.destroy())
+        dlg.present()
+
+    def group(self, page_box, title, description=None):
+        g = Adw.PreferencesGroup.new()
+        g.set_title(title)
+        if description:
+            g.set_description(description)
+        page_box.append(g)
+        return g
+
+    def page(self, name, title):
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL,
+                      spacing=12)
+        box.set_margin_top(24)
+        box.set_margin_bottom(24)
+        box.set_margin_start(24)
+        box.set_margin_end(24)
+        clamp = Adw.Clamp.new()
+        clamp.set_maximum_size(620)
+        clamp.set_child(box)
+        scroll = Gtk.ScrolledWindow.new()
+        scroll.set_child(clamp)
+        scroll.set_policy(Gtk.PolicyType.NEVER,
+                          Gtk.PolicyType.AUTOMATIC)
+        self.stack.add_titled(scroll, name, title)
+        return box
+
+    # -- status ----------------------------------------------------------
+    def build_status_page(self):
+        box = self.page("status", "Status")
+        tools = self.group(box, "Tools",
+                           "Versions found on this machine right now.")
+        for name, ver in collect_status():
+            row = Adw.ActionRow.new()
+            row.set_title(name)
+            sub = Gtk.Label.new(ver)
+            sub.set_xalign(0)
+            sub.set_wrap(True)
+            sub.set_selectable(True)
+            mono(sub)
+            row.add_suffix(sub)
+            tools.add(row)
+
+        power = self.group(box, "Power", "Current sleep behaviour.")
+        self.status_power_row = Adw.ActionRow.new()
+        power.add(self.status_power_row)
+        self.refresh_power_rows()
+
+        btn = Gtk.Button.new_with_label("Copy full report")
+        btn.set_tooltip_text(
+            "Copy every version and the power state as plain text")
+        btn.connect("clicked", self.on_copy_report)
+        box.append(btn)
+
+    def status_report_text(self):
+        lines = [f"{n}: {v}" for n, v in collect_status()]
+        lines.append(f"sleepless: {'ON' if sleepless_on() else 'OFF'}")
+        lines.append(lid_summary())
+        return "\n".join(lines)
+
+    def on_copy_report(self, _btn):
+        text = self.status_report_text()
+        try:
+            display = self.get_display()
+            display.get_clipboard().set(text)
+            self.toast("Report copied to the clipboard")
+        except Exception as e:  # noqa: BLE001
+            self.error("Could not copy the report", str(e))
+
+    # -- power ------------------------------------------------------------
+    def build_power_page(self):
+        box = self.page("power", "Power")
+        grp = self.group(
+            box, "Sleepless 24/7 mode",
+            "When on, this box ignores lid-close, suspend keys and "
+            "idle — it keeps running with the lid shut. "
+            "Don't carry it in a bag while it is on.")
+        # Adw 1.1 has no SwitchRow: ActionRow + activatable Gtk.Switch
+        # is the equivalent pattern (row label names the switch,
+        # whole row is keyboard-toggleable).
+        switch_row = Adw.ActionRow.new()
+        switch_row.set_title("Stay awake with the lid closed")
+        switch_row.set_subtitle("Loading current state…")
+        self.sleepless_switch_row = switch_row
+        self.sleepless_switch = Gtk.Switch.new()
+        self.sleepless_switch.set_valign(Gtk.Align.CENTER)
+        self.sleepless_switch.connect("notify::active",
+                                      self.on_sleepless_toggled)
+        switch_row.add_suffix(self.sleepless_switch)
+        switch_row.set_activatable_widget(self.sleepless_switch)
+        grp.add(switch_row)
+
+        once = self.group(box, "One-off blocks",
+                          "Block sleep temporarily without changing settings.")
+        row = Adw.ActionRow.new()
+        row.set_title("Block sleep in a terminal")
+        row.set_subtitle("Sleep is blocked until you close that window.")
+        btn = Gtk.Button.new_with_label("Open blocker terminal")
+        btn.connect("clicked", self.on_block_once)
+        row.add_suffix(btn)
+        once.add(row)
+
+    def refresh_power_rows(self):
+        on = sleepless_on()
+        lid = lid_summary()
+        self.status_power_row.set_title(
+            "Sleepless is ON" if on else "Sleepless is OFF")
+        self.status_power_row.set_subtitle(
+            ("Safe to close the lid — work continues. " if on else
+             "Closing the lid suspends this machine. ") + lid)
+        if hasattr(self, "sleepless_switch"):
+            self.sleepless_switch.handler_block_by_func(
+                self.on_sleepless_toggled)
+            try:
+                self.sleepless_switch.set_active(on)
+                self.sleepless_switch_row.set_subtitle(
+                    "On — lid close is ignored." if on else
+                    "Off — lid close suspends.")
+            finally:
+                self.sleepless_switch.handler_unblock_by_func(
+                    self.on_sleepless_toggled)
+
+    def on_sleepless_toggled(self, switch, _pspec):
+        want = switch.get_active()
+        switch.set_sensitive(False)
+        if want:
+            ok, err = sleepless_enable()
+            done_text = "Sleepless is ON — safe to close the lid."
+        else:
+            ok, err = sleepless_disable()
+            done_text = "Sleepless is OFF — lid close suspends again."
+        switch.set_sensitive(True)
+        if ok:
+            self.toast(done_text)
+        else:
+            self.error(
+                "Could not change sleepless mode",
+                (err + "\n\nThe permission prompt may have been cancelled. "
+                 "Try again and enter your password.")
+                if err else
+                "The permission prompt may have been cancelled. "
+                "Try again and enter your password.")
+        self.refresh_power_rows()
+
+    def on_block_once(self, _btn):
+        if open_terminal("sleepless — close this window to allow sleep",
+                          "systemd-inhibit --what=sleep:idle:shutdown:"
+                          "handle-lid-switch --who=sleepless "
+                          '--why="temporary block from Rig Panel" '
+                          "--mode=block sleep infinity"):
+            self.toast("Blocker terminal opened")
+        else:
+            self.error("Could not open a terminal",
+                       "gnome-terminal is required for one-off blocks.")
+
+    # -- updates ------------------------------------------------------------
+    UPDATES = [
+        ("Terminal tools",
+         "opencode · codex · claude · agy · t3",
+         "Downloads the latest releases. Takes a few minutes.",
+         "update-cli"),
+        ("Cursor editor",
+         "Editor .deb plus the agent CLI",
+         "Downloads about 200 MB, then asks for your password.",
+         "update-cursor"),
+        ("T3 Code app",
+         "Latest desktop release from GitHub",
+         "Downloads the .deb, then asks for your password.",
+         "update-t3"),
+    ]
+
+    def build_updates_page(self):
+        box = self.page("updates", "Updates")
+        grp = self.group(box, "Bring this box up to date",
+                         "Each update opens a terminal so you can see it "
+                         "working. Your password is asked inside that "
+                         "terminal, never here.")
+        for title, who, detail, key in self.UPDATES:
+            row = Adw.ActionRow.new()
+            row.set_title(title)
+            row.set_subtitle(f"{who}\n{detail}")
+            btn = Gtk.Button.new_with_label("Update")
+            btn.set_tooltip_text(f"Update {title}")
+            btn.connect("clicked", self.on_update, title, detail, key)
+            row.add_suffix(btn)
+            grp.add(row)
+
+    def on_update(self, _btn, title, detail, key):
+        def go():
+            cmds = {
+                "update-cli": (
+                    "Update terminal tools",
+                    "set -x; "
+                    "curl -fsSL https://opencode.ai/install | bash; "
+                    "npm install -g @openai/codex@latest; "
+                    "curl -fsSL https://claude.ai/install.sh "
+                    "-o /tmp/rig-claude.sh && bash /tmp/rig-claude.sh; "
+                    "curl -fsSL https://antigravity.google/cli/install.sh "
+                    "-o /tmp/rig-agy.sh && bash /tmp/rig-agy.sh; "
+                    "curl -fsSL https://t3.codes/install.sh "
+                    "-o /tmp/rig-t3.sh && sh /tmp/rig-t3.sh"),
+                "update-cursor": (
+                    "Update Cursor",
+                    "set -x; "
+                    'curl -fSL "https://api2.cursor.sh/updates/download/'
+                    'golden/linux-x64-deb/cursor/3.22" -o /tmp/rig-cursor.deb'
+                    " && sudo dpkg -i /tmp/rig-cursor.deb "
+                    "&& sudo apt-get install -f -y "
+                    "&& rm -f /tmp/rig-cursor.deb; "
+                    "curl https://cursor.com/install -fsS | bash"),
+                "update-t3": (
+                    "Update T3 Code app",
+                    "set -x; "
+                    "VER=$(curl -fsSL https://api.github.com/repos/"
+                    "pingdotgg/t3code/releases/latest | python3 -c "
+                    '"import sys,json; '
+                    "print(json.load(sys.stdin)['tag_name'])\"); "
+                    'curl -fSL "https://github.com/pingdotgg/t3code/'
+                    'releases/download/${VER}/T3-Code-${VER#v}-amd64.deb" '
+                    "-o /tmp/rig-t3code.deb && sudo dpkg -i "
+                    "/tmp/rig-t3code.deb && sudo apt-get install -f -y "
+                    "&& rm -f /tmp/rig-t3code.deb"),
+            }
+            term_title, script = cmds[key]
+            if open_terminal(term_title, script):
+                self.toast(f"{title} started in a terminal")
+            else:
+                self.error("Could not open a terminal",
+                           "gnome-terminal is required for updates.")
+        self.confirm(f"Update {title}?", detail, "Update", go)
+
+    # -- tailscale ------------------------------------------------------------
+    def build_tailscale_page(self):
+        box = self.page("tailscale", "Tailscale")
+        grp = self.group(box, "Private network",
+                         "Reach this box from anywhere once connected.")
+        self.ts_state = Adw.ActionRow.new()
+        grp.add(self.ts_state)
+
+        view_grp = self.group(box, "Connection details")
+        self.ts_view = Gtk.TextView.new()
+        self.ts_view.set_editable(False)
+        self.ts_view.set_cursor_visible(False)
+        self.ts_view.set_monospace(True)
+        self.ts_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        # Accessible context comes from the "Connection details" group
+        # title above; no custom accessible name needed.
+        frame = Gtk.Frame.new()
+        frame.set_child(self.ts_view)
+        view_grp.add(frame)
+
+        btns = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        btns.set_halign(Gtk.Align.CENTER)
+        for label, tip, cb in (
+                ("Connect", "Log in and join your tailnet",
+                 self.on_ts_up),
+                ("Disconnect", "Leave the tailnet (stays installed)",
+                 self.on_ts_down),
+                ("Refresh", "Re-read the connection state",
+                 lambda _b: self.refresh_tailscale())):
+            b = Gtk.Button.new_with_label(label)
+            b.set_tooltip_text(tip)
+            b.connect("clicked", cb)
+            btns.append(b)
+        box.append(btns)
+        self.refresh_tailscale()
+
+    def refresh_tailscale(self):
+        if not have("tailscale"):
+            self.ts_state.set_title("Tailscale is not installed")
+            self.ts_state.set_subtitle(
+                "Install it from the Updates page.")
+            buf = self.ts_view.get_buffer()
+            buf.set_text("not installed")
+            return
+        try:
+            p = subprocess.run(["tailscale", "status"], capture_output=True,
+                               text=True, timeout=10)
+            out = (p.stdout or p.stderr or "").strip() or "(no output)"
+        except Exception as e:  # noqa: BLE001
+            out = f"could not query tailscale: {e}"
+        first = out.splitlines()[0] if out else ""
+        if "Logged out" in out or "logged out" in first.lower():
+            self.ts_state.set_title("Disconnected")
+            self.ts_state.set_subtitle(
+                "Choose Connect and approve the login in the terminal.")
+        else:
+            self.ts_state.set_title("Connected")
+            self.ts_state.set_subtitle(first)
+        self.ts_view.get_buffer().set_text(out)
+
+    def on_ts_up(self, _btn):
+        if open_terminal("Tailscale up",
+                         "sudo tailscale up"):
+            self.toast("Approve the login in the terminal, then Refresh")
+        else:
+            self.error("Could not open a terminal",
+                       "gnome-terminal is required to connect.")
+
+    def on_ts_down(self, _btn):
+        ok, err = pkexec(["tailscale", "down"])
+        if ok:
+            self.toast("Tailscale disconnected")
+        else:
+            self.error("Could not disconnect",
+                       err or "The permission prompt may have been cancelled.")
+        self.refresh_tailscale()
+
+
+class RigApp(Adw.Application):
+    def __init__(self):
+        super().__init__(application_id=APP_ID,
+                         flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+    def do_activate(self):
+        win = self.props.active_window
+        if not win:
+            win = RigWindow(self)
+        win.present()
+
+
+def main():
+    if os.environ.get("RIG_PANEL_SELFTEST"):
+        # Build every page headlessly (run under Xvfb) to catch
+        # widget/API errors without showing a window.
+        app = RigApp()
+        app.register(None)
+        win = RigWindow(app)
+        win.refresh_power_rows()
+        win.refresh_tailscale()
+        print("UI_OK")
+        return 0
+    app = RigApp()
+    return app.run(sys.argv)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

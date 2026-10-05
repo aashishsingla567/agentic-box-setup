@@ -289,7 +289,13 @@ tailscale_menu() {
 }
 
 gui() {
-  if ! have zenity; then echo "zenity is required for the GUI" >&2; exit 1; fi
+  # Native GTK4/libadwaita app first (full keyboard + screen-reader support);
+  # the zenity menus below remain as a lightweight fallback.
+  if [ -n "${DISPLAY:-}" ] && have rig-panel-gui; then
+    rig-panel-gui && return 0
+    echo "rig-panel-gui failed — falling back to the basic UI" >&2
+  fi
+  if ! have zenity; then echo "no GUI available (need rig-panel-gui or zenity)" >&2; exit 1; fi
   local ICON_POWER ICON_UPDATE ICON_NET ICON_INFO area headline
   ICON_POWER=$(res_icon cs-power)
   ICON_UPDATE=$(res_icon system-software-update)
