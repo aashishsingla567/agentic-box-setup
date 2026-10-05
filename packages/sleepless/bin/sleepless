@@ -1,0 +1,10 @@
+#!/bin/sh
+# sleepless — macOS-caffeinate style: block sleep/idle/lid-switch while running.
+# Usage: sleepless [command...]  (no command = block until Ctrl+C)
+if [ "$#" -eq 0 ]; then
+  exec systemd-inhibit --what=sleep:idle:shutdown:handle-lid-switch \
+    --who=sleepless --why="user requested 24/7 awake" --mode=block sleep infinity
+else
+  exec systemd-inhibit --what=sleep:idle:shutdown:handle-lid-switch \
+    --who=sleepless --why="user requested 24/7 awake" --mode=block "$@"
+fi

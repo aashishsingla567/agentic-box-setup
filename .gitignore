@@ -1,0 +1,13 @@
+# Secrets and local-only stuff — never committed.
+.env
+*.deb
+*.tar.gz
+*.AppImage
+/tmp/
+
+# Editor / OS noise
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/

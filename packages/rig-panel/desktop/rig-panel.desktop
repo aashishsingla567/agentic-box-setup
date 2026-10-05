@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Rig Panel
+Comment=Manage dev tools, Tailscale and 24/7 sleepless mode
+Exec=rig-panel
+Icon=rig-panel
+Terminal=false
+Type=Application
+Categories=Settings;
+Keywords=power;sleep;lid;suspend;update;tools;
+StartupNotify=true

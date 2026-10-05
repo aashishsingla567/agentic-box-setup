@@ -1,0 +1,325 @@
+#!/bin/bash
+# Rig Panel — GUI control panel for this laptop's dev tools + 24/7 sleepless setup.
+#
+#   rig-panel            open the GUI (zenity)
+#   rig-panel --status   print text status (no GUI, safe for SSH)
+#
+# Power management model (two layers, both must agree to stay awake):
+#   1. systemd-logind drop-in  /etc/systemd/logind.conf.d/sleepless.conf
+#   2. Cinnamon/GNOME gsettings lid-close + auto-suspend keys (per-user)
+set -u
+
+DROPIN="/etc/systemd/logind.conf.d/sleepless.conf"
+STATE_DIR="$HOME/.config/rig-panel"
+VERSIONS_FILE="$STATE_DIR/versions.conf"
+
+# ---- helpers (headless-safe, no GUI launched here) ----
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+tool_version() {
+  # $1 = label, rest = command to try (headless-safe only!)
+  local label="$1"; shift
+  local out=""
+  if have "$1"; then
+    out="$("$@" 2>/dev/null | head -1)"
+  fi
+  printf '%-16s %s\n' "$label:" "${out:-not installed}"
+}
+
+sleepless_state() {
+  if [ -f "$DROPIN" ]; then echo "ON (ignore lid/suspend/idle)"; else echo "OFF (system defaults)"; fi
+}
+
+lid_actions() {
+  local ac bat
+  ac=$(gsettings get org.cinnamon.settings-daemon.plugins.power lid-close-ac-action 2>/dev/null || echo "?")
+  bat=$(gsettings get org.cinnamon.settings-daemon.plugins.power lid-close-battery-action 2>/dev/null || echo "?")
+  echo "lid AC=$ac battery=$bat"
+}
+
+tailscale_state() {
+  if ! have tailscale; then echo "not installed"; return; fi
+  local s
+  s=$(tailscale status --peers=false 2>&1 | head -3)
+  echo "$s" | tr '\n' ' '
+}
+
+print_status() {
+  echo "=== Tools ==="
+  tool_version "opencode" opencode --version
+  tool_version "codex" codex --version
+  tool_version "claude" claude --version
+  tool_version "cursor" cursor --version
+  tool_version "cursor-agent" agent --version
+  tool_version "agy" agy --version
+  tool_version "t3-cli" t3 --version
+  if dpkg -s t3code >/dev/null 2>&1; then
+    printf '%-16s %s\n' "t3code-deb:" "$(dpkg-query -W -f='${Version}' t3code 2>/dev/null)"
+  else
+    printf '%-16s %s\n' "t3code-deb:" "not installed"
+  fi
+  if [ -f "$VERSIONS_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$VERSIONS_FILE"
+    printf '%-16s %s\n' "antigravity-app:" "${ANTIGRAVITY_APP:-installed}"
+    printf '%-16s %s\n' "antigravity-ide:" "${ANTIGRAVITY_IDE:-installed}"
+  fi
+  printf '%-16s %s\n' "node:" "$(node --version 2>/dev/null || echo '?')"
+  echo "=== Power ==="
+  echo "sleepless:      $(sleepless_state)"
+  echo "cinnamon:       $(lid_actions)"
+  echo "=== Tailscale ==="
+  echo "tailscale:      $(tailscale --version 2>/dev/null | head -1 || echo '?')"
+  echo "status:         $(tailscale_state)"
+}
+
+# ---- privileged power toggles ----
+
+sleepless_on() {
+  pkexec bash -c "mkdir -p /etc/systemd/logind.conf.d && cat > '$DROPIN' <<'EOF'
+[Login]
+# Managed by rig-panel: keep laptop running 24/7 with lid closed
+HandleLidSwitch=ignore
+HandleLidSwitchExternalPower=ignore
+HandleLidSwitchDocked=ignore
+HandleSuspendKey=ignore
+HandleHibernateKey=ignore
+IdleAction=ignore
+EOF
+systemctl restart systemd-logind" || return 1
+  gsettings set org.cinnamon.settings-daemon.plugins.power lid-close-ac-action 'nothing'
+  gsettings set org.cinnamon.settings-daemon.plugins.power lid-close-battery-action 'nothing'
+  gsettings set org.gnome.settings-daemon.plugins.power lid-close-ac-action 'nothing'
+  gsettings set org.gnome.settings-daemon.plugins.power lid-close-battery-action 'nothing'
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'nothing'
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'nothing'
+}
+
+sleepless_off() {
+  pkexec bash -c "rm -f '$DROPIN' && systemctl restart systemd-logind" || return 1
+  gsettings set org.cinnamon.settings-daemon.plugins.power lid-close-ac-action 'suspend'
+  gsettings set org.cinnamon.settings-daemon.plugins.power lid-close-battery-action 'suspend'
+  gsettings set org.gnome.settings-daemon.plugins.power lid-close-ac-action 'suspend'
+  gsettings set org.gnome.settings-daemon.plugins.power lid-close-battery-action 'suspend'
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-ac-type 'suspend'
+  gsettings set org.gnome.settings-daemon.plugins.power sleep-inactive-battery-type 'suspend'
+}
+
+run_in_terminal() {
+  # $1 = title, $2 = command string
+  gnome-terminal --title="$1" -- bash -c "$2; echo; read -rp 'Done — press Enter to close… ' _" &
+}
+
+# ---- update recipes (long ones run in a terminal so progress is visible) ----
+
+update_cli_tools() {
+  run_in_terminal "Update CLI tools" '
+    set -x
+    curl -fsSL https://opencode.ai/install | bash
+    npm install -g @openai/codex@latest
+    curl -fsSL https://claude.ai/install.sh -o /tmp/rig-claude-install.sh && bash /tmp/rig-claude-install.sh'
+  # NOTE: agy + t3 self-update via their own installers below
+  run_in_terminal "Update agy + t3" '
+    set -x
+    curl -fsSL https://antigravity.google/cli/install.sh -o /tmp/rig-agy-install.sh && bash /tmp/rig-agy-install.sh
+    curl -fsSL https://t3.codes/install.sh -o /tmp/rig-t3-install.sh && sh /tmp/rig-t3-install.sh'
+}
+
+update_cursor() {
+  run_in_terminal "Update Cursor" '
+    set -x
+    curl -fSL "https://api2.cursor.sh/updates/download/golden/linux-x64-deb/cursor/3.22" -o /tmp/rig-cursor.deb &&
+    sudo dpkg -i /tmp/rig-cursor.deb && sudo apt-get install -f -y && rm -f /tmp/rig-cursor.deb
+    curl https://cursor.com/install -fsS | bash'
+}
+
+update_t3code_desktop() {
+  run_in_terminal "Update T3 Code desktop" '
+    set -x
+    VER=$(curl -fsSL https://api.github.com/repos/pingdotgg/t3code/releases/latest | python3 -c "import sys,json; print(json.load(sys.stdin)[\"tag_name\"])")
+    curl -fSL "https://github.com/pingdotgg/t3code/releases/download/${VER}/T3-Code-${VER#v}-amd64.deb" -o /tmp/rig-t3code.deb &&
+    sudo dpkg -i /tmp/rig-t3code.deb && sudo apt-get install -f -y && rm -f /tmp/rig-t3code.deb'
+}
+
+# ---- GUI (zenity, polished) ----
+
+APP_ICON="$HOME/.local/share/icons/hicolor/scalable/apps/rig-panel.svg"
+
+res_icon() {
+  # $1 = icon basename -> small raster icon for zenity --imagelist.
+  # Zenity renders list icons at NATIVE pixel size (no scaling), so always
+  # prefer 24px: 48px art (esp. 48@2x = 96px) blows rows out and pushes
+  # content off the dialog, as seen in testing.
+  local n="$1" p
+  p=$(find /usr/share/icons/Mint-Y -name "$n.png" -path "*/24/*" ! -name "*@2*" 2>/dev/null | head -1)
+  if [ -z "$p" ]; then
+    p=$(find /usr/share/icons/Mint-Y /usr/share/icons/hicolor -name "$n.png" 2>/dev/null | head -1)
+  fi
+  if [ -z "$p" ]; then
+    p=$(find /usr/share/icons -name "dialog-information.png" 2>/dev/null | head -1)
+  fi
+  echo "$p"
+}
+
+Z() { zenity --window-icon="$APP_ICON" "$@" 2>/dev/null; }
+
+confirm() { # $1=text -> 0 = proceed
+  Z --question --title="Rig Panel" --text="$1" \
+    --ok-label="Continue" --cancel-label="Cancel" --width=440
+}
+
+say() { # $1=text
+  Z --info --title="Rig Panel" --text="$1" --width=440
+}
+
+fail() {
+  Z --error --title="Rig Panel" \
+    --text="That didn't work — the permission prompt may have been cancelled, or a command failed." \
+    --width=440
+}
+
+status_rows() {
+  # emits "Component|value" lines; value commands must never launch a GUI
+  local v
+  v() { if have "$1"; then "$@" 2>/dev/null | head -1; else echo "not installed"; fi; }
+  printf '%s\n' \
+    "opencode|$(v opencode --version)" \
+    "codex|$(v codex --version)" \
+    "claude|$(v claude --version)" \
+    "cursor editor|$(v cursor --version)" \
+    "cursor agent|$(v agent --version)" \
+    "agy · antigravity cli|$(v agy --version)" \
+    "t3 terminal|$(v t3 --version)" \
+    "t3 desktop app|$(dpkg-query -W -f='${Version}' t3code 2>/dev/null || echo 'not installed')" \
+    "node runtime|$(v node --version)" \
+    "tailscale|$(v tailscale --version)" \
+    "sleepless mode|$(sleepless_state)" \
+    "lid close action|$(lid_actions)"
+}
+
+show_status() {
+  local rows=() headline
+  while IFS='|' read -r a b; do rows+=("$a" "${b:-—}"); done < <(status_rows)
+  if [ -f "$DROPIN" ]; then
+    headline="Sleepless is ON — this laptop stays awake with the lid closed."
+  else
+    headline="Sleepless is OFF — closing the lid suspends this laptop."
+  fi
+  Z --list --modal --title="Rig status" --text="$headline" \
+    --column="Component" --column="Version / state" \
+    --ok-label="Close" --width=680 --height=540 "${rows[@]}"
+}
+
+power_menu() {
+  local pick
+  pick=$(Z --list --imagelist --modal --title="Rig Panel · Power" \
+    --text="Choose how this laptop behaves when the lid closes." \
+    --column="" --column="Mode" --column="What it does" --print-column=2 \
+    --ok-label="Select" --cancel-label="Back" --width=700 --height=360 \
+    "$ICON_POWER" "Stay awake 24/7"  "Ignore lid close, suspend keys and idle — for desk duty" \
+    "$ICON_POWER" "Allow sleep again" "Bring back suspend when the lid closes" \
+    "$ICON_POWER" "Block sleep once"  "Open a terminal that blocks sleep until you close it") || return 0
+  case "$pick" in
+    "Stay awake 24/7")
+      if sleepless_on; then
+        say "Sleepless is ON — safe to close the lid. The machine keeps running."
+      else
+        fail
+      fi
+      ;;
+    "Allow sleep again")
+      if sleepless_off; then
+        say "Sleepless is OFF — closing the lid will suspend the laptop again."
+      else
+        fail
+      fi
+      ;;
+    "Block sleep once")
+      gnome-terminal --title="sleepless — close this window to allow sleep again" -- sleepless &
+      ;;
+  esac
+}
+
+updates_menu() {
+  local pick
+  pick=$(Z --list --imagelist --modal --title="Rig Panel · Updates" \
+    --text="Updates download in a terminal window so you can watch progress." \
+    --column="" --column="Target" --column="Details" --print-column=2 \
+    --ok-label="Update" --cancel-label="Back" --width=700 --height=360 \
+    "$ICON_UPDATE" "Terminal tools" "opencode · codex · claude · agy · t3" \
+    "$ICON_UPDATE" "Cursor editor"  "Editor .deb (~200 MB) plus the agent CLI" \
+    "$ICON_UPDATE" "T3 Code app"    "Latest desktop release from GitHub") || return 0
+  case "$pick" in
+    "Terminal tools")
+      confirm "Update the terminal tools? This downloads the latest opencode, Codex CLI, Claude Code, agy and t3." \
+        && update_cli_tools
+      ;;
+    "Cursor editor")
+      confirm "Update Cursor? This downloads about 200 MB and needs your password to install." \
+        && update_cursor
+      ;;
+    "T3 Code app")
+      confirm "Update the T3 Code desktop app to its latest release? Needs your password to install." \
+        && update_t3code_desktop
+      ;;
+  esac
+}
+
+tailscale_menu() {
+  local pick state
+  state=$(tailscale_state)
+  pick=$(Z --list --imagelist --modal --title="Rig Panel · Tailscale" \
+    --text="Right now: $state" \
+    --column="" --column="Action" --column="Details" --print-column=2 \
+    --ok-label="Select" --cancel-label="Back" --width=700 --height=360 \
+    "$ICON_NET" "Connect" "Log in and join your tailnet (a terminal opens)" \
+    "$ICON_NET" "Disconnect" "Leave the tailnet; Tailscale stays installed" \
+    "$ICON_NET" "Show status" "Peers, IP addresses and connection state") || return 0
+  case "$pick" in
+    Connect) run_in_terminal "Tailscale up" 'sudo tailscale up' ;;
+    Disconnect)
+      if pkexec tailscale down; then say "Tailscale is disconnected."; else fail; fi
+      ;;
+    "Show status")
+      Z --text-info --title="Tailscale status" --width=580 --height=320 \
+        --ok-label="Close" <<< "$(tailscale status 2>&1)"
+      ;;
+  esac
+}
+
+gui() {
+  if ! have zenity; then echo "zenity is required for the GUI" >&2; exit 1; fi
+  local ICON_POWER ICON_UPDATE ICON_NET ICON_INFO area headline
+  ICON_POWER=$(res_icon cs-power)
+  ICON_UPDATE=$(res_icon system-software-update)
+  ICON_NET=$(res_icon cs-network)
+  ICON_INFO=$(res_icon dialog-information)
+  while true; do
+    if [ -f "$DROPIN" ]; then
+      headline="Sleepless is ON — lid can close, work continues."
+    else
+      headline="Sleepless is OFF — closing the lid suspends the laptop."
+    fi
+    area=$(Z --list --imagelist --modal --title="Rig Panel" --text="$headline" \
+      --column="" --column="Area" --column="What you can do" --print-column=2 \
+      --ok-label="Open" --cancel-label="Close" --width=720 --height=400 \
+      "$ICON_INFO"   "Status"    "Every tool version, power mode and Tailscale at a glance" \
+      "$ICON_POWER"  "Power"     "Sleepless 24/7 mode and one-off sleep blocks" \
+      "$ICON_UPDATE" "Updates"   "Bring terminal tools, Cursor and T3 up to date" \
+      "$ICON_NET"    "Tailscale" "Connect, disconnect and check your private network") || exit 0
+    case "$area" in
+      Status) show_status ;;
+      Power) power_menu ;;
+      Updates) updates_menu ;;
+      Tailscale) tailscale_menu ;;
+    esac
+  done
+}
+
+case "${1:-}" in
+  --status) print_status ;;
+  --on) sleepless_on ;;
+  --off) sleepless_off ;;
+  *) gui ;;
+esac
