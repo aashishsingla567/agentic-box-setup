@@ -44,6 +44,9 @@ Detailed accounting rules, retention boundaries, timer cadences, rollback and
 non-systemd installation are in the utility's `linux/README.md`.
 For large eCryptfs homes, the utility also supports read-only allocated-byte
 audits using inode-matched backing metadata, avoiding per-file header reads.
+The administrator installer also provides `dev-storage-underlay`: a read-only
+private-mount-namespace audit of legacy files hidden underneath a mounted home.
+It leaves the active home mounted and never deletes discovered files.
 For an existing local source checkout, run
 `DEV_STORAGE_SOURCE=/absolute/path/to/dev-storage ./install.sh --only storage`.
 The explicit local override trusts that checkout, including its local edits.
