@@ -42,6 +42,8 @@ backups separately; the installers never change them.
 
 Detailed accounting rules, retention boundaries, timer cadences, rollback and
 non-systemd installation are in the utility's `linux/README.md`.
+For large eCryptfs homes, the utility also supports read-only allocated-byte
+audits using inode-matched backing metadata, avoiding per-file header reads.
 For an existing local source checkout, run
 `DEV_STORAGE_SOURCE=/absolute/path/to/dev-storage ./install.sh --only storage`.
 The explicit local override trusts that checkout, including its local edits.

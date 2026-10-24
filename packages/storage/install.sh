@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 # Pin the reviewed Linux implementation; never execute a moving branch as root.
-REV=e85b978ede5cd6d0738f030fcf681f4da522a2ef
+REV=a34ba8853e19a5abb59d236a546a4ff213f2f360
 SOURCE="${DEV_STORAGE_SOURCE:-${XDG_DATA_HOME:-$HOME/.local/share}/agentic-box-setup/sources/dev-storage/$REV}"
 if [[ -z ${DEV_STORAGE_SOURCE:-} ]]; then
   if [[ ! -d "$SOURCE/.git" ]]; then
