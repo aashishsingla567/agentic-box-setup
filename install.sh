@@ -5,7 +5,7 @@
 #   ./install.sh                 install everything
 #   ./install.sh --only sleepless,rig-panel
 #   ./install.sh --list
-set -u
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
@@ -16,7 +16,7 @@ else
   echo "No .env found — using interactive defaults (see .env.example)."
 fi
 
-ALL="dev-tools sleepless rig-panel"
+ALL="dev-tools sleepless rig-panel storage"
 
 list() { echo "packages: $ALL"; }
 
@@ -32,7 +32,7 @@ done
 
 for pkg in $ONLY; do
   case "$pkg" in
-    dev-tools|sleepless|rig-panel) ;;
+    dev-tools|sleepless|rig-panel|storage) ;;
     *) echo "unknown package: $pkg"; list; exit 1 ;;
   esac
 done

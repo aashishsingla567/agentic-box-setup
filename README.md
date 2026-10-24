@@ -8,6 +8,7 @@ packages/
   dev-tools/   opencode · codex · claude · cursor · antigravity · t3 · tailscale
   sleepless/   24/7 lid-closed power (logind + DE) + `sleepless` inhibitor
   rig-panel/   zenity control panel for all of the above
+  storage/     Linux storage budgets, audits, maintenance and workload limits
 ```
 
 ## Quickstart (new machine)
@@ -19,6 +20,11 @@ cp .env.example .env   # optional; fill TAILSCALE_AUTHKEY for zero-touch join
 ```
 
 Partial installs: `./install.sh --only sleepless,rig-panel`
+
+For storage and heavy agent workloads, see the
+[storage setup](packages/storage/README.md). Run `./install.sh --only storage`
+to install private audits, adaptive budgets and scheduled checks. Cleanup
+defaults disabled and worktrees, histories and dependencies are preserved.
 
 Then authenticate the agent providers (interactive, by design):
 `codex login`, `claude auth login`, `agent login`, `opencode auth login`.
