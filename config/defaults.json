@@ -1,0 +1,96 @@
+{
+  "version": 1,
+  "machine": {
+    "os": "auto",
+    "role": "headless"
+  },
+  "packages": [
+    "base",
+    "dev-tools",
+    "runtime",
+    "storage"
+  ],
+  "base": {
+    "components": [
+      "packages",
+      "node"
+    ],
+    "node_version": "24"
+  },
+  "dev-tools": {
+    "components": [
+      "codex",
+      "claude-code",
+      "opencode",
+      "t3code",
+      "tailscale"
+    ],
+    "desktop": false,
+    "versions": {
+      "codex": "latest",
+      "cursor": "3.22",
+      "antigravity_app": "2.19.1",
+      "antigravity_app_build": "6046815158665216",
+      "antigravity_ide": "2.5.5",
+      "antigravity_ide_build": "4923483625488384"
+    }
+  },
+  "runtime": {
+    "components": [
+      "proxy",
+      "t3"
+    ],
+    "proxy_version": "8.0.31",
+    "proxy_port": 8317,
+    "t3_port": 3773,
+    "start_services": false,
+    "limits": {
+      "memory_high_gib": 0,
+      "memory_max_gib": 0,
+      "tasks_max": 0,
+      "cpu_quota_percent": 0
+    }
+  },
+  "startup": {
+    "components": [
+      "ssh",
+      "home",
+      "workspace",
+      "health"
+    ],
+    "home_policy": "auto",
+    "poll_interval": 15,
+    "health_interval": 300,
+    "keep_unlocked": true,
+    "authorized_keys": "~/.ssh/authorized_keys"
+  },
+  "storage": {
+    "components": [
+      "audit"
+    ],
+    "profile": "balanced",
+    "timers": true,
+    "cleanup": false,
+    "budgets_gib": {},
+    "agent_limits": {
+      "cpu_quota_percent": 0,
+      "cpu_weight": 80,
+      "io_weight": 80
+    }
+  },
+  "sleepless": {
+    "components": [
+      "cli"
+    ],
+    "mode": "unchanged"
+  },
+  "rig-panel": {
+    "components": [
+      "ui"
+    ]
+  },
+  "network": {
+    "login_server": "",
+    "join": false
+  }
+}

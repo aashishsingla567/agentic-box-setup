@@ -1,0 +1,17 @@
+{
+  "machine": {
+    "role": "headless"
+  },
+  "packages": [
+    "base",
+    "dev-tools",
+    "runtime",
+    "storage"
+  ],
+  "storage": {
+    "profile": "heavy"
+  },
+  "runtime": {
+    "start_services": true
+  }
+}

@@ -1,16 +1,17 @@
-# dev-tools
+# Development tools
 
-One script per tool in `tools/` (each runs standalone), plus `install.sh`
-for the full set. Versions are pinned at the top of each script — bump the
-`CURSOR_VERSION` / `ANTIGRAVITY_*` vars as new stables land; t3code and the
-opencode/codex/claude installers track latest automatically.
+Select an individual CLI with `./install.sh --only dev-tools.codex --apply`, or several with `--tools codex,claude-code,t3code`. Existing Node is required for Codex; select `base` explicitly to provision it. Direct `tools/TOOL.sh` scripts remain usable and stop on failure.
 
-| script | installs |
-|---|---|
-| `opencode.sh` | opencode v1 stable |
-| `codex.sh` | OpenAI Codex CLI (needs node) |
-| `claude-code.sh` | Claude Code native |
-| `cursor.sh` | Cursor editor .deb + `agent` CLI |
-| `antigravity.sh` | agy CLI + app + IDE in /opt |
-| `t3code.sh` | `t3` CLI + desktop .deb |
-| `tailscale.sh` | Tailscale + optional key-based join |
+| Tool | Default installation |
+| --- | --- |
+| `opencode` | Upstream CLI installer |
+| `codex` | npm CLI in the user's prefix; version/tag configurable |
+| `claude-code` | Upstream native CLI installer |
+| `cursor` | Agent CLI; editor .deb only with `dev-tools.desktop=true` |
+| `antigravity` | agy CLI; app/IDE only with desktop enabled |
+| `t3code` | T3 CLI; desktop .deb only with desktop enabled |
+| `tailscale` | System client/daemon; enrollment requires `network.join=true` |
+
+Vendor CLI installers generally track their current release. Cursor/Antigravity desktop assets have configurable version/build pairs; Node, proxy and the storage utility have their own verification/pinning. This is not a fully reproducible offline package mirror. Downloads run from unique temporary directories; inspect upstream installers and pin/review changes when maintaining a stricter fleet. npm uses a user-local prefix from the frontend, never `sudo npm`.
+
+Tailscale preserves a Running identity, routing and control URL. It does not force logout/reauthentication; other existing non-login states need manual recovery. Optional auth keys are passed by a private temporary file, not in process arguments. Provider login remains the tool's own interactive flow. See the new-machine guide before enrolling remote access.

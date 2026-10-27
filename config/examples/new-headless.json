@@ -1,0 +1,8 @@
+{
+  "machine": {"os": "linuxmint", "role": "headless"},
+  "packages": ["base", "dev-tools", "runtime", "storage"],
+  "dev-tools": {"components": ["codex", "claude-code", "t3code", "tailscale"]},
+  "runtime": {"start_services": true},
+  "storage": {"profile": "heavy", "cleanup": false},
+  "network": {"join": false}
+}

@@ -1,6 +1,6 @@
 #!/bin/bash
 # dev-tools package: every tool the agentic box ships with.
-set -u
+set -euo pipefail
 DIR="$(cd "$(dirname "$0")/tools" && pwd)"
 for t in opencode codex claude-code cursor antigravity t3code tailscale; do
   echo "=== $t ==="

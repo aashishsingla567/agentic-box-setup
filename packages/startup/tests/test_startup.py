@@ -245,4 +245,57 @@ class RollbackRoundtrip(unittest.TestCase):
             self.assertFalse((state/'install-manifest.json').exists())
 
 
+
+class MountedHomeSafety(unittest.TestCase):
+    def setup_mount(self):
+        cfg={**CFG,'home_policy':'mounted','mount_identity':{
+            'target':'/','root':'/','fstype':'ext4','uuid_path':'/dev/disk/by-uuid/fixture','home_inode':17}}
+        entry=dict(id=10,target='/',root='/',fstype='ext4',source='/dev/mapper/root',device='253:0',options=['rw'])
+        def stat(path):
+            return NS(st_dev=os.makedev(253,0),st_rdev=os.makedev(253,0),st_ino=17,st_uid=1000)
+        return cfg,entry,stat
+
+    def test_root_filesystem_home_is_supported(self):
+        cfg,entry,stat=self.setup_mount()
+        self.assertTrue(s.inspect_home(cfg,[entry],stat)['verified'])
+
+    def test_wrong_filesystem_root_inode_or_device_rejected(self):
+        cfg,entry,stat=self.setup_mount()
+        for key,value in [('root','/different'),('fstype','btrfs'),('device','8:1'),('options',['ro'])]:
+            with self.subTest(key=key):self.assertFalse(s.inspect_home(cfg,[{**entry,key:value}],stat)['verified'])
+        cfg['mount_identity']['home_inode']=99
+        self.assertFalse(s.inspect_home(cfg,[entry],stat)['verified'])
+
+    def test_unexpected_nested_mount_does_not_fall_back_to_root(self):
+        cfg,entry,stat=self.setup_mount()
+        nested={**entry,'id':11,'target':'/home/dev','device':'8:1'}
+        self.assertFalse(s.inspect_home(cfg,[entry,nested],stat)['verified'])
+
+    def test_missing_uuid_and_guard_fail_closed(self):
+        cfg,entry,stat=self.setup_mount()
+        with patch.object(s,'inspect_home',return_value={'verified':False}),patch.object(s.os,'geteuid',return_value=0),patch.object(s,'run') as run:
+            with self.assertRaises(RuntimeError):s.prepare_locked(cfg)
+            run.assert_not_called()
+        def missing(path):raise FileNotFoundError()
+        self.assertFalse(s.inspect_home(cfg,[entry],missing)['verified'])
+
+    def test_no_workspace_selected_never_starts_apps(self):
+        cfg,entry,stat=self.setup_mount();cfg['components']=['ssh','health']
+        with patch.object(s,'userctl') as ctl:
+            self.assertEqual(s.reconcile(cfg)['reason'],'workspace-not-configured')
+            ctl.assert_not_called()
+        with patch.object(s,'reconcile') as reconcile,patch.object(s,'stop_workspace') as stop:
+            monitor=s.MountReconciler()
+            monitor.tick(cfg,{'verified':True,'mount_id':10},'manager',0)
+            monitor.tick(cfg,{'verified':False},'manager',15)
+            reconcile.assert_not_called();stop.assert_not_called()
+
+    def test_configured_ports_used_in_health_probes(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'.config/environment.d';path.mkdir(parents=True)
+            (path/'cliproxy.conf').write_text('CLIPROXY_API_KEY=private\n')
+            with patch.object(s,'http_status',return_value=(200,b'{"data":[{}]}')) as http:
+                self.assertEqual(s.proxy_probe({**CFG,'home':temp,'proxy_port':9317})['state'],'ready')
+                self.assertEqual(http.call_args.args[0],'http://127.0.0.1:9317/v1/models')
+
 if __name__=='__main__':unittest.main()

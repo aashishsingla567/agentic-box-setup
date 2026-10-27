@@ -1,13 +1,13 @@
 # Reliable startup with an encrypted Linux home
 
-This opt-in package integrates an **existing** eCryptfs home, CLIProxyAPI,
+This opt-in package integrates an **existing** verified home, CLIProxyAPI,
 T3-managed service and systemd user manager. It installs no agent binaries,
 creates no OAuth credentials, changes no Headscale policy and stores no
 password or encryption key. Linux Mint 21.3 / Python 3.10 / systemd 249 is
 the tested baseline. Unified cgroups are used by the existing workload limits.
 
 ```bash
-./install.sh --only startup
+./install.sh --only startup --apply
 agentic-startup status
 agentic-startup status --json
 ```
@@ -159,3 +159,11 @@ connection and fallback are confirmed. Under working networking, measure SSH
 availability against three minutes from boot, and proxy/T3/remote connection
 against five minutes after unlock. Test logout and Internet recovery without
 forcefully disconnecting the only remote access path.
+
+## Configurable provisioning
+
+The root frontend now plans by default; use `--apply` to install. See [the configuration reference](../../docs/CONFIGURATION.md) for partial `startup.ssh`, `startup.home`, `startup.workspace` and `startup.health` scopes and configurable ports/check intervals. Adding a component retains earlier startup components and rollback baselines. SSH-only needs no runtime; workspace requires installed runtime units and always installs mount guards. Health-only reports missing dependencies without creating applications.
+
+The detailed eCryptfs procedure above remains the existing Mint deployment. New ordinary homes on local UUID-backed filesystems, including OS-unlocked LUKS/ext4, may use `startup.home_policy=mounted` (or auto-detection). Enrollment checks UUID-backed device, mount root/target/type, home inode and owner, and rejects unexpected nested mounts. It does not implement disk unlock; restore/unlock through the OS before `agentic-startup start`. eCryptfs metadata prevents selecting mounted policy as a shortcut. Btrfs, network and overlay layouts need additional adapters/testing.
+
+The configurable frontend and new mount policy have fixture coverage. No fresh distro deployment or controlled reboot has been measured as part of that extension. Do not treat those tests as a remote-access or reboot acceptance result. An upgraded root monitor may restart to reload code/config, while existing healthy proxy/T3 processes are preserved. SSH, Tailscale and persistent networking must be installed/configured separately on a fresh host; their identity/routing are not replaced by startup setup.
