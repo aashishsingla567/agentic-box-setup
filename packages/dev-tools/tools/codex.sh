@@ -1,7 +1,7 @@
 #!/bin/bash
 # OpenAI Codex CLI (npm)
-set -u
+set -euo pipefail
 . "$(dirname "$0")/common.sh"
 need_node || exit 1
-npm install -g @openai/codex@latest
+npm install -g "@openai/codex@${CODEX_VERSION:-latest}"
 codex --version

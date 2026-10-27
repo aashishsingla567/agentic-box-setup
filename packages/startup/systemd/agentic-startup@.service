@@ -1,0 +1,20 @@
+[Unit]
+Description=Mount-safe workspace startup monitor for %i
+Requires=agentic-home-guard@%i.service
+After=agentic-home-guard@%i.service
+Before=umount.target
+Conflicts=umount.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/local/libexec/agentic-startup.py monitor --user %i
+Restart=on-failure
+RestartSec=15
+TimeoutStopSec=90
+CPUQuota=5%
+MemoryMax=96M
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

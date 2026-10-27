@@ -15,3 +15,7 @@
 # Python bytecode
 __pycache__/
 *.py[cod]
+
+# Per-machine overrides and private exports
+*.local.json
+private/

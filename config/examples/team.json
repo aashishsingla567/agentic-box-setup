@@ -1,0 +1,5 @@
+{
+  "packages": ["base", "dev-tools", "storage"],
+  "dev-tools": {"components": ["codex", "claude-code", "t3code", "tailscale"], "desktop": false},
+  "storage": {"profile": "heavy", "cleanup": false}
+}

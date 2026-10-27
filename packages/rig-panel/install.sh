@@ -3,7 +3,7 @@
 # dev tools + sleepless power + Tailscale, with a text CLI for SSH.
 # Needs: python3, python3-gi, gir1.2-gtk-4.0, gir1.2-adw-1, gnome-terminal.
 # (zenity is only a fallback for the old menu UI.)
-set -u
+set -euo pipefail
 PKG="$(cd "$(dirname "$0")" && pwd)"
 
 missing=""

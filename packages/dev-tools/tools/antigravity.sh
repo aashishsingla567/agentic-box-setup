@@ -2,14 +2,16 @@
 # Google Antigravity: CLI (agy) + desktop app + IDE, system-wide in /opt.
 # Bump the VERSION/HASH vars when new releases land (see
 # https://antigravity.google/download/).
-set -u
+set -euo pipefail
 . "$(dirname "$0")/common.sh"
 
 echo "--- agy CLI ---"
-fetch_to_file https://antigravity.google/cli/install.sh /tmp/agentic-agy-install.sh
-bash /tmp/agentic-agy-install.sh
-rm -f /tmp/agentic-agy-install.sh
+fetch_to_file https://antigravity.google/cli/install.sh "${AGENTIC_TMP}/agy-install.sh"
+bash "${AGENTIC_TMP}/agy-install.sh"
+rm -f "${AGENTIC_TMP}/agy-install.sh"
 agy --version
+
+[[ ${AGENTIC_DESKTOP:-false} == true ]] || exit 0
 
 APP_VERSION="${ANTIGRAVITY_APP_VERSION:-2.19.1}"
 APP_BUILD="${ANTIGRAVITY_APP_BUILD:-6046815158665216}"
@@ -19,20 +21,20 @@ IDE_BUILD="${ANTIGRAVITY_IDE_BUILD:-4923483625488384}"
 echo "--- Antigravity app $APP_VERSION ---"
 fetch_to_file \
   "https://storage.googleapis.com/antigravity-public/antigravity-hub/${APP_VERSION}-${APP_BUILD}/linux-x64/Antigravity.tar.gz" \
-  /tmp/agentic-antigravity.tar.gz
+  "${AGENTIC_TMP}/antigravity.tar.gz"
 sudo mkdir -p /opt/antigravity
-sudo tar -xzf /tmp/agentic-antigravity.tar.gz -C /opt/antigravity --strip-components=1
-rm -f /tmp/agentic-antigravity.tar.gz
+sudo tar -xzf "${AGENTIC_TMP}/antigravity.tar.gz" -C /opt/antigravity --strip-components=1
+rm -f "${AGENTIC_TMP}/antigravity.tar.gz"
 
 echo "--- Antigravity IDE $IDE_VERSION ---"
-mkdir -p /tmp/agentic-ide-staging
+mkdir -p "${AGENTIC_TMP}/ide-staging"
 fetch_to_file \
   "https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/${IDE_VERSION}-${IDE_BUILD}/linux-x64/Antigravity%20IDE.tar.gz" \
-  "/tmp/agentic-ide.tar.gz"
-tar -xzf "/tmp/agentic-ide.tar.gz" -C /tmp/agentic-ide-staging
+  "${AGENTIC_TMP}/ide.tar.gz"
+tar -xzf "${AGENTIC_TMP}/ide.tar.gz" -C "${AGENTIC_TMP}/ide-staging"
 sudo mkdir -p /opt/antigravity-ide
-sudo cp -a "/tmp/agentic-ide-staging/Antigravity IDE/." /opt/antigravity-ide/
-rm -rf /tmp/agentic-ide-staging "/tmp/agentic-ide.tar.gz"
+sudo cp -a "${AGENTIC_TMP}/ide-staging/Antigravity IDE/." /opt/antigravity-ide/
+rm -rf "${AGENTIC_TMP}/ide-staging" "${AGENTIC_TMP}/ide.tar.gz"
 
 # Electron sandbox bit + launchers + menu entries (quoted paths survive spaces)
 sudo chown root:root /opt/antigravity/chrome-sandbox /opt/antigravity-ide/chrome-sandbox

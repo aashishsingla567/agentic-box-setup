@@ -1,0 +1,18 @@
+{
+  "machine": {
+    "role": "desktop"
+  },
+  "packages": [
+    "base",
+    "dev-tools",
+    "runtime",
+    "storage",
+    "rig-panel"
+  ],
+  "dev-tools": {
+    "desktop": true
+  },
+  "runtime": {
+    "start_services": true
+  }
+}

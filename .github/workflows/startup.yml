@@ -1,0 +1,19 @@
+name: Provisioning and startup safety
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m unittest discover -s tests -v
+      - run: python -m unittest discover -s packages/startup/tests -v
+      - run: python -m compileall -q provision.py provision_support.py packages tests
+      - run: |
+          while IFS= read -r script; do bash -n "$script" || exit; done < <(git ls-files '*.sh')
+      - run: ./install.sh --profile headless-heavy --plan --json
