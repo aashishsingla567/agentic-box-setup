@@ -90,7 +90,9 @@ def validate(cfg):
     if not isinstance(cfg['storage']['budgets_gib'],dict):raise ValueError('storage.budgets_gib must be an object')
     if '.' not in cfg['runtime']['proxy_version']:raise ValueError('runtime.proxy_version must be an exact release')
     major=int(cfg['base']['node_version'].split('.')[0])
-    if major < 22 or major == 23:raise ValueError('Use Node 22.16+, 24.10+ or newer')
+    parts=[int(part) for part in cfg['base']['node_version'].split('.')]
+    if major < 22 or major == 23 or len(parts)>1 and (major==22 and parts[1]<16 or major==24 and parts[1]<10):
+        raise ValueError('Use Node 22.16+, 24.10+ or newer')
     for key,value in cfg['dev-tools']['versions'].items():
         if not isinstance(value,str) or not re.fullmatch(r'[A-Za-z0-9._-]+',value):raise ValueError('Invalid tool version '+key)
     for key,value in cfg['storage']['budgets_gib'].items():
@@ -173,7 +175,7 @@ def environment(cfg):
                ANTIGRAVITY_IDE_VERSION=cfg['dev-tools']['versions']['antigravity_ide'],
                ANTIGRAVITY_IDE_BUILD=cfg['dev-tools']['versions']['antigravity_ide_build'],
                TAILSCALE_LOGIN_SERVER=cfg['network']['login_server'],AGENTIC_TAILSCALE_JOIN=str(cfg['network']['join']).lower())
-    env['PATH']=str(Path.home()/'.local/share/agentic-box/node/current/bin')+':'+str(Path.home()/'.local/bin')+':'+env.get('PATH','')
+    env['PATH']=str(Path.home()/'.local/share/agentic-box/node/current/bin')+':'+str(Path.home()/'.local/bin')+':'+str(Path.home()/'.opencode/bin')+':'+env.get('PATH','')
     env['NPM_CONFIG_PREFIX']=str(Path.home()/'.local')
     return env
 
@@ -195,11 +197,11 @@ def execute_step(step,cfg,env,runner=subprocess.run):
 
 
 def execute_steps(steps,cfg,env,runner=subprocess.run):
-    configured=False
+    handled=set()
     for step in steps:
-        if step['package']=='startup' and step['stage']=='configure':
-            if configured:continue
-            configured=True
+        if step['package']=='startup':
+            if step['stage'] in handled:continue
+            handled.add(step['stage'])
             env=env.copy()
             env['AGENTIC_STARTUP_COMPONENTS']=','.join(s['component'] for s in steps
                 if s['package']=='startup' and s['stage']=='configure')

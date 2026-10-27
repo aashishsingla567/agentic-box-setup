@@ -23,14 +23,17 @@ class ScopedInstaller(unittest.TestCase):
                        inspect_home=lambda cfg:{'verified':True},mount_entries=lambda:[])
             fake_spec=NS(loader=NS(exec_module=lambda module:None))
             calls=[]
-            fail={'daemon':False}
+            fail={'daemon':False,'monitor_active':False,'final_save':False}
+            restart_polls=[]
             def cmd(*args,check=True):
                 calls.append(args)
                 if args[-1]=='daemon-reload' and fail['daemon']:
                     fail['daemon']=False
                     raise RuntimeError('injected daemon reload failure')
+                if len(args)>2 and args[-2]=='restart' and args[-1]=='agentic-startup@dev.service':
+                    restart_polls.append(json.loads((root/'config/dev.json').read_text())['poll_interval'])
                 output=''
-                if 'is-active' in args:output='active' if args[-1]=='ssh.service' else 'inactive'
+                if 'is-active' in args:output='active' if args[-1]=='ssh.service' or fail['monitor_active'] and args[-1]=='agentic-startup@dev.service' else 'inactive'
                 if 'is-enabled' in args:output='disabled'
                 if '-T' in args:output='authorizedkeysfile /etc/ssh/authorized_keys/%u .ssh/authorized_keys\n'
                 if 'prefs' in args:output='{}'
@@ -73,6 +76,18 @@ class ScopedInstaller(unittest.TestCase):
                 i.install(SOURCE,'dev',{'components':['home'],'home_policy':'ecryptfs'})
             self.assertFalse((metadata/'auto-umount').exists())
             self.assertEqual(manifest_path.read_bytes(),before)
+            fail['monitor_active']=True
+            save_manifest=i.save_manifest
+            def fail_after_restart(path,manifest):
+                if path==manifest_path and restart_polls==[40]:
+                    raise RuntimeError('injected final manifest failure')
+                return save_manifest(path,manifest)
+            with patch.object(i,'save_manifest',side_effect=fail_after_restart),self.assertRaisesRegex(RuntimeError,'final manifest'):
+                i.install(SOURCE,'dev',{'components':['home'],'home_policy':'ecryptfs','poll_interval':40})
+            self.assertEqual(restart_polls,[40,15])
+            self.assertEqual(manifest_path.read_bytes(),before)
+            self.assertFalse((metadata/'auto-umount').exists())
+            fail['monitor_active']=False
             with self.assertRaisesRegex(RuntimeError,'application unit missing'):
                 i.install(SOURCE,'dev',{'components':['workspace'],'home_policy':'ecryptfs'})
             self.assertEqual(manifest_path.read_bytes(),before)

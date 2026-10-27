@@ -174,6 +174,7 @@ def install(source, user, options=None):
     current_changes = {}
     marker_changes = {}
     monitor_changed = False
+    monitor_restarted = False
 
     def manage(path, data, mode=0o644, uid=0, gid=0):
         path = Path(path)
@@ -287,6 +288,7 @@ def install(source, user, options=None):
             command('/usr/bin/systemctl', 'enable', monitor_name)
             # Reloading root monitor code/config does not restart workspace applications.
             action = 'restart' if monitor_changed and previous_activity[monitor_name] == 'active' else 'start'
+            monitor_restarted = action == 'restart'
             command('/usr/bin/systemctl', action, monitor_name)
         # Networking and tailscaled retain their installed enablement, identity and policy.
         # No restart of T3, proxy, the user manager, networking, or tailscaled.
@@ -315,6 +317,9 @@ def install(source, user, options=None):
             restore(path, prior)
         restore(manifest_path, original_manifest)
         command('/usr/bin/systemctl', 'daemon-reload', check=False)
+        if monitor_restarted:
+            # This daemon caches its root config/code; roll it back along with the files.
+            command('/usr/bin/systemctl', 'restart', monitor_name, check=False)
         if 'ssh' in components:
             command('/usr/bin/systemctl', 'reload', 'ssh.service', check=False)
         raise

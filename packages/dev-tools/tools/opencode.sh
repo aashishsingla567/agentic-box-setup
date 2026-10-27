@@ -4,4 +4,5 @@ set -euo pipefail
 . "$(dirname "$0")/common.sh"
 fetch_to_file https://opencode.ai/install "$AGENTIC_TMP/opencode.sh"
 bash "$AGENTIC_TMP/opencode.sh"
+export PATH="$HOME/.opencode/bin:$PATH"
 opencode --version

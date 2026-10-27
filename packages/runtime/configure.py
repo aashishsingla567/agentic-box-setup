@@ -26,6 +26,8 @@ def install_proxy(cfg):
 
 def configure_proxy(cfg):
     home=Path.home();env=home/'.config/environment.d/cliproxy.conf'
+    if (home/'.config/cli-proxy-api/config.yaml').exists() and not env.exists():
+        raise RuntimeError('Existing proxy configuration has no managed credential source; preserve its credentials and configure it manually')
     if env.exists():
         keys=[l.split('=',1)[1].strip().strip('\"\'') for l in env.read_text().splitlines() if l.startswith('CLIPROXY_API_KEY=')]
         if len(keys)!=1 or not keys[0]:raise RuntimeError('Existing proxy credential source is incomplete')
@@ -75,7 +77,7 @@ def configure_t3(cfg):
     configure_t3_dependencies(cfg)
     dropin=('[Unit]\nRequires=agentic-proxy-ready.service\nAfter=agentic-proxy-ready.service\n[Service]\nEnvironmentFile=-%h/.config/environment.d/cliproxy.conf\n'
             f'Environment=T3CODE_PORT={port}\n'
-            'Environment=PATH=%h/.local/share/agentic-box/node/current/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin\n')
+            'Environment=PATH=%h/.local/share/agentic-box/node/current/bin:%h/.local/bin:%h/.opencode/bin:/usr/local/bin:/usr/bin:/bin\n')
     managed_write(home/'.config/systemd/user/t3code.service.d/provision.conf',dropin.encode(),0o644)
     if not unit.exists():
         env=os.environ.copy();env['T3CODE_PORT']=str(port)

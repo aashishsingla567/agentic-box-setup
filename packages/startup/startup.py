@@ -197,10 +197,17 @@ def prepare_locked(cfg):
         raise RuntimeError('Locked-home guard verification failed')
 
 
+class NoCredentialRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, request, response, code, message, headers, url):
+        return None
+
+
 def http_status(url, headers=None):
     request = urllib.request.Request(url, headers=headers or {})
     try:
-        with urllib.request.urlopen(request, timeout=3) as response:
+        # Credential probes stay on loopback, even with proxy/redirect settings.
+        opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoCredentialRedirect()) if headers else urllib.request.build_opener()
+        with opener.open(request, timeout=3) as response:
             return response.status, response.read(1024 * 1024)
     except urllib.error.HTTPError as error:
         return error.code, b''
@@ -218,7 +225,9 @@ def proxy_probe(cfg):
         if not key:
             return {'state': 'missing-credential'}
         code, body = http_status(f"http://127.0.0.1:{cfg.get('proxy_port', 8317)}/v1/models", {'Authorization': 'Bearer ' + key})
-        models = json.loads(body).get('data', []) if code == 200 else []
+        payload = json.loads(body) if code == 200 else {}
+        models = payload.get('data', []) if isinstance(payload, dict) else []
+        if not isinstance(models, list):models = []
         return {'state': 'ready' if models else 'unavailable', 'model_count': len(models)}
     except (OSError, ValueError, TypeError):
         return {'state': 'unavailable'}

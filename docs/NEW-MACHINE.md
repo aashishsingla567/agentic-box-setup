@@ -16,7 +16,7 @@ cd agentic-box-setup
 ./install.sh --config machine.local.json --plan
 ```
 
-Before this PR is merged, clone its `feat/configurable-provisioning` branch with `git clone --branch feat/configurable-provisioning ...`. Alternatively copy [new-headless.json](../config/examples/new-headless.json) to `machine.local.json`, change `machine.os` to the installed OS, and review the configuration reference. No host-specific account name, machine identity, provider login or key is in that example.
+Alternatively copy [new-headless.json](../config/examples/new-headless.json) to `machine.local.json`, change `machine.os` to the installed OS, and review the configuration reference. No host-specific account name, machine identity, provider login or key is in that example.
 
 5. Apply the reviewed profile:
 

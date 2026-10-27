@@ -10,13 +10,14 @@ def main():
     stage,component=sys.argv[1:3]
     cfg=config();user=pwd.getpwuid(os.getuid()).pw_name
     if stage=='verify':
-        # Read-only functional status may return 2 for locked/degraded; expose that
+        # Read-only functional status returns 1 for locked/degraded; expose that
         # condition without pretending provisioning itself failed or repairing apps.
         p=subprocess.run(['/usr/local/bin/agentic-startup','status','--json'],capture_output=True,text=True)
         if not p.stdout:raise RuntimeError('Startup not configured; run its configure stage first')
         status=json.loads(p.stdout)
+        if p.returncode not in (0,1) or status.get('state') not in ('locked','starting','ready','degraded'):
+            raise RuntimeError('Startup verification failed')
         print('Startup readiness: '+status['state']+' (external authenticated UI remains unverified)')
-        if p.returncode not in (0,2):raise RuntimeError('Startup verification failed')
         return
     components=os.environ.get('AGENTIC_STARTUP_COMPONENTS',component).split(',')
     options={'components':components,'home_policy':cfg['startup']['home_policy']}

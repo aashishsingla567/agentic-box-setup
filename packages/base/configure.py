@@ -45,7 +45,7 @@ def install_node(cfg):
     if current.exists() and not current.is_symlink():raise RuntimeError('Existing Node current path preserved')
     link=store/'current.new';link.unlink(missing_ok=True);link.symlink_to(destination);os.replace(link,current)
     env=Path.home()/'.config/agentic-box/env.sh'
-    body=('export PATH="'+str(current/'bin')+':$HOME/.local/bin:$PATH"\n').encode()
+    body=('export PATH="'+str(current/'bin')+':$HOME/.local/bin:$HOME/.opencode/bin:$PATH"\n').encode()
     managed_write(env,body,0o644)
     for name in ('.profile','.zprofile'):
         path=Path.home()/name
