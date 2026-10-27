@@ -5,7 +5,7 @@
 #   ./install.sh                 install everything
 #   ./install.sh --only sleepless,rig-panel
 #   ./install.sh --list
-set -u
+set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 
@@ -18,7 +18,7 @@ fi
 
 ALL="dev-tools sleepless rig-panel"
 
-list() { echo "packages: $ALL"; }
+list() { echo "packages: $ALL startup (opt-in; requires an existing workspace runtime)"; }
 
 ONLY="$ALL"
 while [ "$#" -gt 0 ]; do
@@ -32,7 +32,7 @@ done
 
 for pkg in $ONLY; do
   case "$pkg" in
-    dev-tools|sleepless|rig-panel) ;;
+    dev-tools|sleepless|rig-panel|startup) ;;
     *) echo "unknown package: $pkg"; list; exit 1 ;;
   esac
 done

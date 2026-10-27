@@ -1,0 +1,13 @@
+[Unit]
+Description=Read-only locked-home surface for %i
+After=local-fs.target
+Before=ssh.service display-manager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/agentic-startup.py guard --user %i
+RemainAfterExit=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

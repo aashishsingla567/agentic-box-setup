@@ -1,0 +1,20 @@
+name: Startup safety
+on:
+  push:
+    paths: ['packages/startup/**', 'install.sh', '.github/workflows/startup.yml']
+  pull_request:
+    paths: ['packages/startup/**', 'install.sh', '.github/workflows/startup.yml']
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '${{ matrix.python }}'
+      - run: python -m unittest discover -s packages/startup/tests -v
+      - run: python -m py_compile packages/startup/startup.py packages/startup/install.py packages/startup/tests/mount_namespace.py
+      - run: bash -n install.sh packages/startup/install.sh

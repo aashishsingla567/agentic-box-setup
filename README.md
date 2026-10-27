@@ -8,6 +8,7 @@ packages/
   dev-tools/   opencode · codex · claude · cursor · antigravity · t3 · tailscale
   sleepless/   24/7 lid-closed power (logind + DE) + `sleepless` inhibitor
   rig-panel/   zenity control panel for all of the above
+  startup/     opt-in mount-safe startup for an existing encrypted workspace
 ```
 
 ## Quickstart (new machine)
@@ -31,3 +32,8 @@ Then authenticate the agent providers (interactive, by design):
 - Only secret currently usable headlessly: `TAILSCALE_AUTHKEY` (ephemeral,
   reusable key from the Tailscale admin console). Provider logins stay
   interactive on purpose — OAuth device flows can't and shouldn't be baked in.
+
+For an existing eCryptfs devbox, `./install.sh --only startup` adds boot-access
+SSH keys, a protected locked-home surface, automatic workspace startup after
+one remote unlock, and functional readiness reporting. See
+[the startup runbook](packages/startup/README.md) for prerequisites, limits and rollback.
