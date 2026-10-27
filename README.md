@@ -2,6 +2,8 @@
 
 Configurable provisioning for a Linux machine used for remote development and AI agents. Choose a machine profile, a package, an individual tool, or one setting. Plans are read-only; installation requires `--apply`.
 
+See [what the repo can do](docs/CAPABILITIES.md), the [complete OS-to-ready runbook](docs/NEW-MACHINE.md), and the [setup/boot diagram](docs/SETUP-FLOW.html).
+
 Adapters cover Linux Mint, Ubuntu and Debian with systemd and Python 3.10+. Mint/Ubuntu x86_64 is the existing deployment; other supported combinations have planning and fixture coverage, not a completed fresh-OS installation test. [Start from a new OS](docs/NEW-MACHINE.md) or [configure an existing machine](docs/CONFIGURATION.md).
 
 ```bash

@@ -12,16 +12,20 @@ agentic-startup status
 agentic-startup status --json
 ```
 
-Run installation as the workspace user with sudo available. The current
-implementation supports one managed, non-root workspace account per host,
-a mounted eCryptfs home at its passwd home path, and Ubuntu/Mint's
-`/home/.ecryptfs/USERNAME/{.Private,.ecryptfs}` metadata layout. It refuses an
-unexpected mount, missing runtime units, missing existing SSH authorized keys,
-or conflicting managed files. Fresh machines need the runtime provisioned first.
+Run installation as the workspace user with sudo available. The implementation supports one managed, non-root workspace account per host.
+The eCryptfs policy requires the mounted passwd home and Ubuntu/Mint's
+`/home/.ecryptfs/USERNAME/{.Private,.ecryptfs}` layout. The mounted policy enrolls
+a supported local UUID-backed filesystem, including a home on root or an
+OS-unlocked LUKS/ext4 filesystem. Full workspace setup requires existing runtime
+units; the SSH component requires existing public authorization entries.
+Unexpected mounts and conflicting managed files stop installation. See
+[the complete new-machine sequence](../../docs/NEW-MACHINE.md) before a fresh setup.
 
-## What happens on boot
+## Boot sequence for the existing eCryptfs home
 
-1. Linux, system-wide NetworkManager, Tailscale and SSH start without desktop login.
+1. Linux boots, after any OS disk unlock. Its separately configured persistent
+   network, Tailscale and SSH start without desktop login. Startup setup preserves
+   network/Tailscale enablement and policy; configure them on a fresh host first.
 2. A root-owned guard overlays the locked home with a read-only login surface.
    It exposes only the eCryptfs metadata/backing links needed for the distro's
    unlock helper. The legacy home remains untouched and hidden. SSH's existing
@@ -39,7 +43,11 @@ or conflicting managed files. Fresh machines need the runtime provisioned first.
    and removes only the `auto-umount` marker. Automatic mounting, encryption,
    graphical login and critical-battery protection remain unchanged.
 
-This is **one interactive unlock per boot**, not unattended automatic decryption.
+For an ordinary or OS-unlocked home using mounted policy, no eCryptfs overlay or
+password helper is used: the guard checks the enrolled filesystem and the monitor
+starts the workspace. Any encrypted-root unlock belongs to the OS before SSH.
+
+This eCryptfs sequence is **one interactive unlock per boot**, not unattended automatic decryption.
 The guard is armed for the next locked boot: installation does not insert a
 mount below or replace the currently active home. Reconciliation uses mount
 identity/inodes and kernel read-only state; a mountpoint existence check alone
@@ -96,9 +104,9 @@ wrapped encryption keys or databases. Logs rotate at 1 MiB with three backups.
 No shell arguments, subprocess dumps, HTTP bodies or secrets are logged.
 
 Reinstallation preserves the original rollback baseline and refuses to replace
-managed files changed independently since installation. It does not restart a
-running monitor or healthy applications; monitor implementation changes take
-full effect on its next start. Core networking services remain enabled on rollback.
+managed files changed independently since installation. Healthy applications are not restarted. If root monitor code/config changes,
+the lightweight monitor may restart to load it; a failed upgrade reloads the
+restored monitor after rollback. Core networking policy is retained on rollback.
 
 ```bash
 sudo agentic-startup uninstall --user "$USER"
