@@ -23,4 +23,6 @@ CI runs non-privileged fixtures/plans on Python 3.10 and 3.12. The privileged in
 
 This extension was not applied to the live machine. Its previously installed startup stack still reported verified unlocked home, functional proxy/T3, online tailnet and connected tunnel edge during the read-only check. The external authenticated UI remains unverified. Existing uncommitted runtime work was kept in its original checkout.
 
+On 2026-10-27 the user confirmed that the second MacBook SSH command using the existing key succeeded. A subsequent read-only check confirmed valid sshd configuration, the root-owned authorization file ahead of home-based keys, enabled/active SSH and startup services, and healthy local applications/tunnel edge. This connection was made while home was already unlocked; pre-login or locked-home access remains a separate boot test.
+
 Not measured: a fresh OS install, aarch64 hardware deployment, OS-encrypted LUKS boot, a public-key connection from a second device before desktop login, logout persistence across a real remote session, or a controlled reboot. The three-minute SSH and five-minute post-unlock readiness targets require those acceptance measurements. No partitioning, OS replacement, TPM enrollment, key migration, remote identity reset or reboot was performed.
